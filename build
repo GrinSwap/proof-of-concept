@@ -1,0 +1,2 @@
+cd secp256k1
+python build.py
