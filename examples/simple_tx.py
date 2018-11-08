@@ -106,17 +106,20 @@ def post(handler: HTTPServerHandler):
         print("Receive {} grin".format(slate.amount / GRIN_UNIT))
 
         # Output
-        n_outputs = min(1, slate.amount)
+        # n_outputs = min(100, slate.amount)
+        n_outputs = 1
         blind_sum = BlindSum()
-        output_key, output_entry = wallet.create_output(slate.amount-n_outputs+1)
-        print("Generate output 0")
-        blind_sum.add_child_key(output_key)
+        output_child_key, output_entry = wallet.create_output(slate.amount-n_outputs+1)
+        print("Generate output 0: {}".format(wallet.commit(output_entry)))
+        print()
+        blind_sum.add_child_key(output_child_key)
         slate.tx.add_output(secp, wallet.entry_to_output(output_entry))
-        for i in range(n_outputs-1):
-            print("Generate output {}".format(i+1))
-            output_key_loop, output_entry_loop = wallet.create_output(1)
-            blind_sum.add_child_key(output_key_loop)
-            slate.tx.add_output(secp, wallet.entry_to_output(output_entry_loop))
+        if n_outputs > 1:
+            for i in range(n_outputs-1):
+                output_child_key_loop, output_entry_loop = wallet.create_output(1)
+                print("Generate output {}: {}".format(i + 1, wallet.commit(output_entry_loop)))
+                blind_sum.add_child_key(output_child_key_loop)
+                slate.tx.add_output(secp, wallet.entry_to_output(output_entry_loop))
 
         # Excess
         excess = wallet.chain.blind_sum(blind_sum).to_secret_key(secp)

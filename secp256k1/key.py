@@ -192,7 +192,10 @@ class PublicKey:
 
     @staticmethod
     def from_combination(secp: Secp256k1, pos_keys, neg_keys=None):
-        assert len(pos_keys) > 0
+        if neg_keys is None:
+            assert len(pos_keys) > 0
+        else:
+            assert len(pos_keys) > 0 or len(neg_keys) > 0
         obj = PublicKey(secp)
         items = []
         for key in pos_keys:
@@ -201,7 +204,7 @@ class PublicKey:
             else:
                 assert isinstance(key, PublicKey), "Input not all instance of SecretKey or PublicKey"
                 items.append(key.key)
-        if isinstance(neg_keys, list):
+        if isinstance(neg_keys, list) and len(neg_keys) > 0:
             neg_sum = PublicKey.from_combination(secp, neg_keys)
             neg_sum.negate_assign(secp)
             items.append(neg_sum.key)
@@ -224,7 +227,7 @@ class Signature:
         return self.__str__()
 
     def scalar(self, secp: Secp256k1) -> SecretKey:
-        return SecretKey.from_bytearray(secp, self.signature[:32])
+        return SecretKey.from_bytearray(secp, self.signature[32:64])
 
     def to_bytearray(self, secp: Secp256k1, compact=False) -> bytearray:
         if not compact:

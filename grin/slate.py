@@ -88,7 +88,8 @@ class Slate:
     def partial_signature(self, secp: Secp256k1, participant: ParticipantData, secret_key: SecretKey,
                           secret_nonce: SecretKey):
         participant.partial_signature = aggsig.calculate_partial(
-            secp, secret_key, secret_nonce, self.public_nonce_sum(secp), self.fee, self.lock_height
+            secp, secret_key, secret_nonce, self.public_blind_excess_sum(secp), self.public_nonce_sum(secp),
+            self.fee, self.lock_height
         )
 
     def verify_partial_signatures(self, secp: Secp256k1):

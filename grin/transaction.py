@@ -94,9 +94,9 @@ class Output:
         return Output(features, commit, proof)
 
     @staticmethod
-    def create(chain: Keychain, features: OutputFeatures, child: ChildKey, amount: int):
-        commit = chain.commit(amount, child)
-        proof = create_proof(chain.secp, child, amount, commit, bytearray())
+    def create(chain: Keychain, features: OutputFeatures, child_key: ChildKey, amount: int):
+        commit = chain.commit(amount, child_key)
+        proof = create_proof(chain.secp, child_key.key, amount, commit, bytearray())
         return Output(features, commit, proof)
 
 
@@ -161,10 +161,12 @@ class Transaction:
 
     def to_dict(self, secp: Secp256k1, short=False) -> dict:
         return {
-            "inputs": [x.to_dict(secp, short) for x in self.inputs],
-            "outputs": [x.to_dict(secp, short) for x in self.outputs],
-            "kernels": [x.to_dict(secp, short) for x in self.kernels],
-            "offset": self.offset.to_hex().decode() if short else list(self.offset.to_bytearray())
+            "offset": self.offset.to_hex().decode() if short else list(self.offset.to_bytearray()),
+            "body": {
+                "inputs": [x.to_dict(secp, short) for x in self.inputs],
+                "outputs": [x.to_dict(secp, short) for x in self.outputs],
+                "kernels": [x.to_dict(secp, short) for x in self.kernels]
+            }
         }
 
     def to_bytearray(self, secp: Secp256k1) -> bytearray:
@@ -223,13 +225,13 @@ class Transaction:
     @staticmethod
     def from_dict(secp: Secp256k1, dct: dict):
         inputs = []
-        for input in dct['inputs']:
+        for input in dct['body']['inputs']:
             inputs.append(Input.from_dict(secp, input))
         outputs = []
-        for output in dct['outputs']:
+        for output in dct['body']['outputs']:
             outputs.append(Output.from_dict(secp, output))
         kernels = []
-        for kernel in dct['kernels']:
+        for kernel in dct['body']['kernels']:
             kernels.append(Kernel.from_dict(secp, kernel))
         offset = BlindingFactor.from_bytearray(bytearray(dct['offset']))
         return Transaction(inputs, outputs, kernels, offset)

@@ -1,5 +1,5 @@
 typedef struct {
-    unsigned char data[33];
+    unsigned char data[64];
 } secp256k1_generator;
 
 int secp256k1_generator_parse(

@@ -33,20 +33,10 @@ int secp256k1_aggsig_sign_single(
     const unsigned char *msg32,
     const unsigned char *seckey32,
     const unsigned char* secnonce32,
-    const secp256k1_pubkey *pubnonce_for_e,
-    const secp256k1_pubkey* pubnonce_total,
-    const unsigned char* seed
-);
-
-int secp256k1_aggsig_sign_single_extra(
-    const secp256k1_context* ctx,
-    unsigned char *sig64,
-    const unsigned char *msg32,
-    const unsigned char *seckey32,
-    const unsigned char* secnonce32,
     const unsigned char* extra32,
     const secp256k1_pubkey *pubnonce_for_e,
     const secp256k1_pubkey* pubnonce_total,
+    const secp256k1_pubkey* pubkey_for_e,
     const unsigned char* seed
 );
 
@@ -81,16 +71,8 @@ int secp256k1_aggsig_verify_single(
     const unsigned char *msg32,
     const secp256k1_pubkey *pubnonce,
     const secp256k1_pubkey *pubkey,
-    const int is_partial
-);
-
-int secp256k1_aggsig_verify_single_extra(
-    const secp256k1_context* ctx,
-    const unsigned char *sig64,
-    const unsigned char *msg32,
-    const secp256k1_pubkey *pubnonce,
-    const secp256k1_pubkey *pubkey,
-    const secp256k1_pubkey *extrakey,
+    const secp256k1_pubkey *pubkey_total,
+    const secp256k1_pubkey *extra_pubkey,
     const int is_partial
 );
 

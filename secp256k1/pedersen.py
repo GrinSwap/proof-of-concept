@@ -1,5 +1,5 @@
 from binascii import hexlify, unhexlify
-from secp256k1 import Secp256k1 as Secp256k1_base, SECRET_KEY_SIZE
+from secp256k1 import Secp256k1 as Secp256k1_base, Message, SECRET_KEY_SIZE
 from secp256k1.key import SecretKey, PublicKey
 from ._libsecp256k1 import ffi, lib
 
@@ -92,18 +92,24 @@ class Secp256k1(Secp256k1_base):
     def __init__(self, ctx, flags):
         super().__init__(ctx, flags)
         self.GENERATOR_G = ffi.new("secp256k1_generator *", [bytes([
-            0x0a,
             0x79, 0xbe, 0x66, 0x7e, 0xf9, 0xdc, 0xbb, 0xac,
             0x55, 0xa0, 0x62, 0x95, 0xce, 0x87, 0x0b, 0x07,
             0x02, 0x9b, 0xfc, 0xdb, 0x2d, 0xce, 0x28, 0xd9,
-            0x59, 0xf2, 0x81, 0x5b, 0x16, 0xf8, 0x17, 0x98
+            0x59, 0xf2, 0x81, 0x5b, 0x16, 0xf8, 0x17, 0x98,
+            0x48, 0x3a, 0xda, 0x77, 0x26, 0xa3, 0xc4, 0x65,
+            0x5d, 0xa4, 0xfb, 0xfc, 0x0e, 0x11, 0x08, 0xa8,
+            0xfd, 0x17, 0xb4, 0x48, 0xa6, 0x85, 0x54, 0x19,
+            0x9c, 0x47, 0xd0, 0x8f, 0xfb, 0x10, 0xd4, 0xb8
         ])])
         self.GENERATOR_H = ffi.new("secp256k1_generator *", [bytes([
-            0x11,
             0x50, 0x92, 0x9b, 0x74, 0xc1, 0xa0, 0x49, 0x54,
             0xb7, 0x8b, 0x4b, 0x60, 0x35, 0xe9, 0x7a, 0x5e,
             0x07, 0x8a, 0x5a, 0x0f, 0x28, 0xec, 0x96, 0xd5,
-            0x47, 0xbf, 0xee, 0x9a, 0xce, 0x80, 0x3a, 0xc0
+            0x47, 0xbf, 0xee, 0x9a, 0xce, 0x80, 0x3a, 0xc0,
+            0x31, 0xd3, 0xc6, 0x86, 0x39, 0x73, 0x92, 0x6e,
+            0x04, 0x9e, 0x63, 0x7c, 0xb1, 0xb5, 0xf4, 0x0a,
+            0x36, 0xda, 0xc2, 0x8a, 0xf1, 0x76, 0x69, 0x68,
+            0xc3, 0x0c, 0x23, 0x13, 0xf3, 0xa3, 0x89, 0x04
         ])])
 
         self.gens = lib.secp256k1_bulletproof_generators_create(self.ctx, self.GENERATOR_G, 256)
@@ -146,6 +152,21 @@ class Secp256k1(Secp256k1_base):
         assert ret, "Unable to sum blinding factors"
         return SecretKey.from_bytearray(self, bytearray(ffi.buffer(sum_key, SECRET_KEY_SIZE)))
 
+    def sign(self, secret_key: SecretKey, message: bytearray):
+        assert len(message) == 32, "Invalid message length"
+        signature_obj = ffi.new("secp256k1_ecdsa_signature *")
+        res = lib.secp256k1_ecdsa_sign(
+            self.ctx, signature_obj, bytes(message), bytes(secret_key.key), ffi.NULL, ffi.NULL
+        )
+        assert res, "Unable to generate signature"
+        signature_ptr = ffi.new("char []", 80)
+        signature_len_ptr = ffi.new("size_t *", 80)
+        res = lib.secp256k1_ecdsa_signature_serialize_der(
+            self.ctx, signature_ptr, signature_len_ptr, signature_obj
+        )
+        assert res, "Unable to DER serialize signature"
+        return bytearray(ffi.buffer(signature_ptr, signature_len_ptr[0]))
+
     def sign_recoverable(self, secret_key: SecretKey, message: bytearray) -> bytearray:
         assert len(message) == 32, "Invalid message length"
         signature_obj = ffi.new("secp256k1_ecdsa_recoverable_signature *")
@@ -169,54 +190,61 @@ class Secp256k1(Secp256k1_base):
         blind_key = ffi.new("char []", bytes(blind.key))
         scratch = lib.secp256k1_scratch_space_create(self.ctx, 256 * MAX_WIDTH)
         res = lib.secp256k1_bulletproof_rangeproof_prove(
-            self.ctx, scratch, self.gens, proof_ptr, proof_len_ptr, [value], ffi.NULL, [blind_key],
-            1, self.GENERATOR_H, 64, bytes(nonce.key), bytes(extra_data), len(extra_data)
+            self.ctx, scratch, self.gens, proof_ptr, proof_len_ptr, ffi.NULL, ffi.NULL, ffi.NULL,
+            [value], ffi.NULL, [blind_key], ffi.NULL, 1, self.GENERATOR_H, 64, bytes(nonce.key), ffi.NULL,
+            bytes(extra_data), len(extra_data), ffi.NULL
         )
         obj = RangeProof.from_bytearray(bytearray(ffi.buffer(proof_ptr, proof_len_ptr[0])))
         lib.secp256k1_scratch_space_destroy(scratch)
         assert res, "Unable to generate bulletproof"
         return obj
 
-    def bullet_proof_multisig_1(self, nonce: SecretKey) -> (PublicKey, PublicKey):
+    def bullet_proof_multisig_1(self, value: int, blind: SecretKey, commit: Commitment, common_nonce: SecretKey,
+                                nonce: SecretKey, extra_data: bytearray) -> (PublicKey, PublicKey):
+        scratch = lib.secp256k1_scratch_space_create(self.ctx, 256 * MAX_WIDTH)
         t_1 = PublicKey(self)
         t_2 = PublicKey(self)
-        lib.secp256k1_bulletproof_rangeproof_1(self.ctx, self.gens, t_1.key, t_2.key, bytes(nonce.key))
+        blind_key = ffi.new("char []", bytes(blind.key))
+        res = lib.secp256k1_bulletproof_rangeproof_prove(
+            self.ctx, scratch, self.gens, ffi.NULL, ffi.NULL, ffi.NULL, t_1.key, t_2.key, [value],
+            ffi.NULL, [blind_key], [commit.commitment], 1, self.GENERATOR_H, 64, bytes(common_nonce.key),
+            bytes(nonce.key), bytes(extra_data), len(extra_data), ffi.NULL
+        )
+        lib.secp256k1_scratch_space_destroy(scratch)
+        assert res, "Unable to generate multisig bulletproof"
         return t_1, t_2
 
-    def bullet_proof_multisig_2(self, value: int, blind: SecretKey, commit: Commitment, nonce: SecretKey,
-                                common_nonce: SecretKey, t_1: PublicKey, t_2: PublicKey,
-                                extra_data: bytearray) -> SecretKey:
+    def bullet_proof_multisig_2(self, value: int, blind: SecretKey, commit: Commitment, common_nonce: SecretKey,
+                                nonce: SecretKey, t_1: PublicKey, t_2: PublicKey, extra_data: bytearray) -> SecretKey:
         scratch = lib.secp256k1_scratch_space_create(self.ctx, 256 * MAX_WIDTH)
         tau_x_ptr = ffi.new("char []", 32)
-        blind_ptr = ffi.new("char []", bytes(blind.key))
-        commit_public = commit.to_public_key(self)
-        res = lib.secp256k1_bulletproof_rangeproof_2(
-            self.ctx, scratch, self.gens, tau_x_ptr, t_1.key, t_2.key, [value], ffi.NULL, [blind_ptr],
-            [commit_public.key], 1, self.GENERATOR_H, 64, bytes(nonce.key), bytes(common_nonce.key), bytes(extra_data),
-            len(extra_data)
+        blind_key = ffi.new("char []", bytes(blind.key))
+        res = lib.secp256k1_bulletproof_rangeproof_prove(
+            self.ctx, scratch, self.gens, ffi.NULL, ffi.NULL, tau_x_ptr, t_1.key, t_2.key, [value],
+            ffi.NULL, [blind_key], [commit.commitment], 1, self.GENERATOR_H, 64, bytes(common_nonce.key),
+            bytes(nonce.key), bytes(extra_data), len(extra_data), ffi.NULL
         )
         lib.secp256k1_scratch_space_destroy(scratch)
         assert res, "Unable to generate multisig bulletproof"
         return SecretKey.from_bytearray(self, bytearray(ffi.buffer(tau_x_ptr, 32)))
 
-    def bullet_proof_multisig_3(self, value: int, blind: SecretKey, commit: Commitment, nonce: SecretKey,
-                                common_nonce: SecretKey, t_1: PublicKey, t_2: PublicKey, tau_x: SecretKey,
+    def bullet_proof_multisig_3(self, value: int, blind: SecretKey, commit: Commitment, common_nonce: SecretKey,
+                                nonce: SecretKey, t_1: PublicKey, t_2: PublicKey, tau_x: SecretKey,
                                 extra_data: bytearray) -> RangeProof:
         scratch = lib.secp256k1_scratch_space_create(self.ctx, 256 * MAX_WIDTH)
         proof_ptr = ffi.new("char []", MAX_PROOF_SIZE)
         proof_len_ptr = ffi.new("size_t *", MAX_PROOF_SIZE)
         tau_x_ptr = ffi.new("char []", bytes(tau_x.to_bytearray()))
-        blind_ptr = ffi.new("char []", bytes(blind.key))
-        commit_public = commit.to_public_key(self)
-
-        res = lib.secp256k1_bulletproof_rangeproof_3(
-            self.ctx, scratch, self.gens, proof_ptr, proof_len_ptr, tau_x_ptr, t_1.key, t_2.key, [value], ffi.NULL,
-            [blind_ptr], [commit_public.key], 1, self.GENERATOR_H, 64, bytes(nonce.key), bytes(common_nonce.key),
-            bytes(extra_data), len(extra_data)
+        blind_key = ffi.new("char []", bytes(blind.key))
+        res = lib.secp256k1_bulletproof_rangeproof_prove(
+            self.ctx, scratch, self.gens, proof_ptr, proof_len_ptr, tau_x_ptr, t_1.key, t_2.key,
+            [value], ffi.NULL, [blind_key], [commit.commitment], 1, self.GENERATOR_H, 64, bytes(common_nonce.key),
+            bytes(nonce.key), bytes(extra_data), len(extra_data), ffi.NULL
         )
+        obj = RangeProof.from_bytearray(bytearray(ffi.buffer(proof_ptr, proof_len_ptr[0])))
         lib.secp256k1_scratch_space_destroy(scratch)
         assert res, "Unable to generate multisig bulletproof"
-        return RangeProof.from_bytearray(bytearray(ffi.buffer(proof_ptr, proof_len_ptr[0])))
+        return obj
 
     def verify_bullet_proof(self, commit: Commitment, proof: RangeProof, extra_data: bytearray) -> bool:
         scratch = lib.secp256k1_scratch_space_create(self.ctx, 256 * MAX_WIDTH)
@@ -225,8 +253,7 @@ class Secp256k1(Secp256k1_base):
             1, 64, self.GENERATOR_H, bytes(extra_data), len(extra_data)
         )
         lib.secp256k1_scratch_space_destroy(scratch)
-        assert res, "Unable to verify bulletproof"
-        return True
+        return res == 1
 
 
 def ethereum_signature(data: bytearray) -> (bytes, bytes, int):

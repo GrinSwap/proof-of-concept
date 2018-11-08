@@ -6,44 +6,26 @@ from ._libsecp256k1 import ffi, lib
 
 
 def sign_single(secp: Secp256k1, message: Message, secret_key: SecretKey, secret_nonce: Optional[SecretKey],
-                public_nonce: Optional[PublicKey], final_nonce_sum: Optional[PublicKey]) -> Signature:
+                public_nonce: Optional[PublicKey], public_key_sum: Optional[PublicKey],
+                public_nonce_sum: Optional[PublicKey], extra_secret_key: Optional[SecretKey]) -> Signature:
     signature_out = ffi.new("char [64]")
     res = lib.secp256k1_aggsig_sign_single(
         secp.ctx, signature_out, bytes(message.message), bytes(secret_key.key), ffi.NULL if secret_nonce is None
-        else bytes(secret_nonce.key), ffi.NULL if public_nonce is None else public_nonce.key, ffi.NULL if
-        final_nonce_sum is None else final_nonce_sum.key, urandom(32)
+        else bytes(secret_nonce.key), ffi.NULL if extra_secret_key is None else bytes(extra_secret_key.key),
+        ffi.NULL if public_nonce is None else public_nonce.key, ffi.NULL if public_nonce_sum is None
+        else public_nonce_sum.key, ffi.NULL if public_key_sum is None else public_key_sum.key, urandom(32)
     )
     assert res, "Unable to sign message"
     return Signature.from_bytearray(secp, bytearray(ffi.buffer(signature_out, 64)))
 
 
-def sign_single_extra(secp: Secp256k1, message: Message, secret_key: SecretKey, secret_nonce: Optional[SecretKey],
-                      extra: SecretKey, public_nonce: Optional[PublicKey], final_nonce_sum: Optional[PublicKey]
-                      ) -> Signature:
-    signature_out = ffi.new("char [64]")
-    res = lib.secp256k1_aggsig_sign_single_extra(
-        secp.ctx, signature_out, bytes(message.message), bytes(secret_key.key), ffi.NULL if secret_nonce is None
-        else bytes(secret_nonce.key), bytes(extra.key), ffi.NULL if public_nonce is None else public_nonce.key, ffi.NULL if
-        final_nonce_sum is None else final_nonce_sum.key, urandom(32)
-    )
-    assert res, "Unable to sign message"
-    return Signature.from_bytearray(secp, bytearray(ffi.buffer(signature_out, 64)))
-
-
-def verify_single(secp: Secp256k1, signature: Signature, message: Message, public_nonce: Optional[PublicKey],
-                  public_key: PublicKey, partial=True) -> bool:
+def verify_single(secp: Secp256k1, signature: Signature, message: Message, public_key: PublicKey,
+                  public_key_sum: Optional[PublicKey], public_nonce_sum: Optional[PublicKey],
+                  extra_public_key: Optional[PublicKey], partial=True) -> bool:
     res = lib.secp256k1_aggsig_verify_single(
-        secp.ctx, bytes(signature.signature), bytes(message.message), ffi.NULL if public_nonce is None
-        else public_nonce.key, public_key.key, 1 if partial else 0
-    )
-    return True if res else False
-
-
-def verify_single_extra(secp: Secp256k1, signature: Signature, message: Message, public_nonce: Optional[PublicKey],
-                        public_key: PublicKey, extra_key: PublicKey, partial=True) -> bool:
-    res = lib.secp256k1_aggsig_verify_single_extra(
-        secp.ctx, bytes(signature.signature), bytes(message.message), ffi.NULL if public_nonce is None
-        else public_nonce.key, public_key.key, extra_key.key, 1 if partial else 0
+        secp.ctx, bytes(signature.signature), bytes(message.message), ffi.NULL if public_nonce_sum is None
+        else public_nonce_sum.key, public_key.key, ffi.NULL if public_key_sum is None else public_key_sum.key,
+        ffi.NULL if extra_public_key is None else extra_public_key.key, 1 if partial else 0
     )
     return True if res else False
 

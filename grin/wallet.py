@@ -3,7 +3,7 @@ import json
 from binascii import hexlify, unhexlify
 from typing import List
 from enum import Enum
-from grin.keychain import Keychain, Identifier, ChildKey
+from grin.keychain import Keychain, Identifier, ChildKey, KeychainPath
 from grin.util import absolute
 from grin.transaction import Input, Output, OutputFeatures
 from secp256k1.pedersen import Secp256k1, Commitment
@@ -70,8 +70,8 @@ class OutputEntry:
                            dct['lock_height'], dct['is_coinbase'])
 
     @staticmethod
-    def from_child(child: ChildKey, value: int, is_coinbase: bool):
-        return OutputEntry(child.root_key_id, child.key_id, child.n_child, value,
+    def from_child_key(child_key: ChildKey, value: int, is_coinbase: bool):
+        return OutputEntry(child_key.root_key_id, child_key.key_id, child_key.n_child, value,
                            OutputStatus.Unconfirmed, 0, 0, is_coinbase)
 
 
@@ -174,24 +174,29 @@ class Wallet:
     def create_output(self, value: int, is_coinbase=False) -> (ChildKey, OutputEntry):
         assert isinstance(is_coinbase, bool)
         # TODO: lock
-        child = self.chain.derive(self.details.next())
-        self.cache[child.key_id.to_hex().decode()] = child
-        output = OutputEntry.from_child(child, value, is_coinbase)
-        self.outputs[output.key_id.to_hex().decode()] = output
+        i = self.details.next()
+        key_id = self.chain.derive_key_id(3, 0, 0, i, 0)  # TODO: manage accounts etc
+        key_id_hex = key_id.to_hex().decode()
+        ext_key = self.chain.derive_key(key_id)
+        child_key = ChildKey(i, key_id.parent_path(), key_id, ext_key)
+        self.cache[key_id_hex] = child_key
+        entry = OutputEntry.from_child_key(child_key, value, is_coinbase)
+        self.outputs[key_id_hex] = entry
         # self.save()
-        return child, output
+        return child_key, entry
 
     def derive_from_entry(self, entry: OutputEntry) -> ChildKey:
         key_id = entry.key_id.to_hex().decode()
         if key_id not in self.cache:
-            self.cache[key_id] = self.chain.derive(entry.n_child)
+            ext_key = self.chain.derive_key(entry.key_id)
+            self.cache[key_id] = ChildKey(entry.n_child, entry.root_key_id, entry.key_id, ext_key)
         return self.cache[key_id]
 
-    def commit_with_child_key(self, value: int, child: ChildKey) -> Commitment:
-        return self.chain.commit(value, child)
+    def commit_with_child_key(self, value: int, child_key: ChildKey) -> Commitment:
+        return self.chain.commit(value, child_key)
 
     def commit(self, entry: OutputEntry) -> Commitment:
-        return self.chain.commit(entry.value, self.derive_from_entry(entry))
+        return self.commit_with_child_key(entry.value, self.derive_from_entry(entry))
 
     def entry_to_input(self, entry: OutputEntry) -> Input:
         commitment = self.commit(entry)
