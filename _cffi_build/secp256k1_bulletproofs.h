@@ -46,7 +46,6 @@ int secp256k1_bulletproof_rangeproof_verify_multi(
 
 int secp256k1_bulletproof_rangeproof_rewind(
     const secp256k1_context* ctx,
-    const secp256k1_bulletproof_generators* gens,
     uint64_t* value,
     unsigned char* blind,
     const unsigned char* proof,
